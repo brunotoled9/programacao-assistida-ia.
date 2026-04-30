@@ -1,0 +1,143 @@
+
+<style>
+  :root { --cam-size: 220px; }
+  .tm-wrap { padding: 1.5rem 0; max-width: 600px; }
+  .tm-header { margin-bottom: 1.5rem; }
+  .tm-header h2 { font-size: 18px; font-weight: 500; color: var(--color-text-primary); margin: 0 0 4px; }
+  .tm-header p { font-size: 13px; color: var(--color-text-secondary); margin: 0; }
+  .tm-body { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; }
+  .tm-cam-section { display: flex; flex-direction: column; gap: 12px; }
+  #webcam-container { width: var(--cam-size); height: var(--cam-size); background: var(--color-background-secondary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; }
+  #webcam-container canvas { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }
+  .cam-placeholder { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--color-text-tertiary); font-size: 13px; }
+  .cam-icon { width: 40px; height: 40px; border-radius: 50%; background: var(--color-background-tertiary); display: flex; align-items: center; justify-content: center; }
+  .cam-icon svg { width: 20px; height: 20px; stroke: var(--color-text-tertiary); fill: none; stroke-width: 1.5; }
+  .tm-btn { padding: 8px 20px; background: transparent; border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); font-size: 14px; color: var(--color-text-primary); cursor: pointer; transition: background 0.15s; width: var(--cam-size); }
+  .tm-btn:hover { background: var(--color-background-secondary); }
+  .tm-btn:active { transform: scale(0.98); }
+  .tm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .tm-results { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
+  .result-item { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 14px; }
+  .result-label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 6px; }
+  .result-bar-wrap { background: var(--color-background-tertiary); border-radius: 4px; height: 6px; overflow: hidden; }
+  .result-bar { height: 6px; border-radius: 4px; background: #7F77DD; transition: width 0.2s ease; width: 0%; }
+  .result-pct { font-size: 13px; font-weight: 500; color: var(--color-text-primary); margin-top: 4px; }
+  .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-border-secondary); margin-right: 6px; }
+  .status-dot.active { background: #1D9E75; }
+  .status-text { font-size: 12px; color: var(--color-text-secondary); display: flex; align-items: center; }
+</style>
+
+<div class="tm-wrap">
+  <h2 class="sr-only">Teachable Machine — classificador de imagem em tempo real via webcam</h2>
+  <div class="tm-header">
+    <h2>Teachable Machine</h2>
+    <p>Classificação de imagem em tempo real</p>
+  </div>
+
+  <div class="tm-body">
+    <div class="tm-cam-section">
+      <div id="webcam-container">
+        <div class="cam-placeholder" id="cam-placeholder">
+          <div class="cam-icon">
+            <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
+          <span>Câmera inativa</span>
+        </div>
+      </div>
+      <button class="tm-btn" id="start-btn" onclick="initModel()">Iniciar câmera</button>
+      <div class="status-text">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-label">Aguardando início</span>
+      </div>
+    </div>
+
+    <div class="tm-results" id="label-container"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+<script>
+  const MODEL_URL = "https://teachablemachine.withgoogle.com/models/P5PeUH80O/";
+  let model, webcam, maxPredictions, running = false;
+
+  function setStatus(text, active) {
+    document.getElementById("status-label").textContent = text;
+    document.getElementById("status-dot").className = "status-dot" + (active ? " active" : "");
+  }
+
+  function buildResultCards(classes) {
+    const container = document.getElementById("label-container");
+    container.innerHTML = "";
+    classes.forEach(name => {
+      container.innerHTML += `
+        <div class="result-item" id="card-${name.replace(/\s/g,'_')}">
+          <div class="result-label">${name}</div>
+          <div class="result-bar-wrap"><div class="result-bar" id="bar-${name.replace(/\s/g,'_')}"></div></div>
+          <div class="result-pct" id="pct-${name.replace(/\s/g,'_')}">0%</div>
+        </div>`;
+    });
+  }
+
+  async function initModel() {
+    const btn = document.getElementById("start-btn");
+    btn.disabled = true;
+    setStatus("Carregando modelo...", false);
+
+    try {
+      model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+      maxPredictions = model.getTotalClasses();
+      const classNames = Array.from({length: maxPredictions}, (_, i) => model.getClassLabels ? model.getClassLabels()[i] : `Classe ${i+1}`);
+      buildResultCards(classNames);
+
+      setStatus("Iniciando câmera...", false);
+      webcam = new tmImage.Webcam(220, 220, true);
+      await webcam.setup();
+      await webcam.play();
+
+      document.getElementById("cam-placeholder").style.display = "none";
+      document.getElementById("webcam-container").appendChild(webcam.canvas);
+
+      btn.textContent = "Parar";
+      btn.disabled = false;
+      btn.onclick = stopModel;
+      running = true;
+      setStatus("Classificando em tempo real", true);
+      loop();
+    } catch(e) {
+      setStatus("Erro ao iniciar: " + e.message, false);
+      btn.disabled = false;
+    }
+  }
+
+  function stopModel() {
+    running = false;
+    if (webcam) webcam.stop();
+    const btn = document.getElementById("start-btn");
+    btn.textContent = "Iniciar câmera";
+    btn.onclick = initModel;
+    setStatus("Câmera encerrada", false);
+    const wc = document.getElementById("webcam-container");
+    if (webcam && webcam.canvas) { wc.removeChild(webcam.canvas); }
+    document.getElementById("cam-placeholder").style.display = "flex";
+  }
+
+  async function loop() {
+    if (!running) return;
+    webcam.update();
+    await predict();
+    requestAnimationFrame(loop);
+  }
+
+  async function predict() {
+    const predictions = await model.predict(webcam.canvas);
+    predictions.forEach(p => {
+      const key = p.className.replace(/\s/g,'_');
+      const pct = Math.round(p.probability * 100);
+      const bar = document.getElementById("bar-" + key);
+      const pctEl = document.getElementById("pct-" + key);
+      if (bar) bar.style.width = pct + "%";
+      if (pctEl) pctEl.textContent = pct + "%";
+    });
+  }
+</script>

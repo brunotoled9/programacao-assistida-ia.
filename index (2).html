@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Teachable Machine — Classificador de Imagem</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f13;
+      color: #e8e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .card {
+      background: #1a1a24;
+      border: 1px solid #2a2a3a;
+      border-radius: 20px;
+      padding: 2.5rem;
+      max-width: 640px;
+      width: 100%;
+      box-shadow: 0 0 60px rgba(127,119,221,0.08);
+    }
+
+    header { margin-bottom: 2rem; }
+    header h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: -0.3px;
+    }
+    header p {
+      font-size: 0.85rem;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .layout {
+      display: flex;
+      gap: 1.5rem;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    /* Camera */
+    .cam-section { display: flex; flex-direction: column; gap: 12px; }
+
+    #webcam-container {
+      width: 220px;
+      height: 220px;
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    #webcam-container canvas {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover;
+      display: block;
+    }
+
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      color: #444;
+      font-size: 0.8rem;
+    }
+
+    .placeholder svg {
+      width: 36px; height: 36px;
+      stroke: #444; fill: none; stroke-width: 1.5;
+    }
+
+    /* Button */
+    #toggle-btn {
+      width: 220px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid #7F77DD;
+      background: transparent;
+      color: #a09be0;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    #toggle-btn:hover { background: #7F77DD22; color: #c4c0f0; }
+    #toggle-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #toggle-btn.stop { border-color: #e05555; color: #e08080; }
+    #toggle-btn.stop:hover { background: #e0555522; }
+
+    /* Status */
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.78rem;
+      color: #555;
+    }
+
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #333;
+      transition: background 0.3s;
+    }
+
+    .dot.active { background: #1dbb7e; box-shadow: 0 0 6px #1dbb7e99; }
+
+    /* Results */
+    .results {
+      flex: 1;
+      min-width: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .result-card {
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 12px;
+      padding: 12px 14px;
+      transition: border-color 0.3s;
+    }
+
+    .result-card.top { border-color: #7F77DD55; }
+
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .result-name { font-size: 0.82rem; color: #aaa; }
+    .result-pct { font-size: 0.95rem; font-weight: 600; color: #fff; }
+
+    .bar-track {
+      background: #1e1e2a;
+      border-radius: 6px;
+      height: 6px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 6px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, #7F77DD, #a09be0);
+      width: 0%;
+      transition: width 0.2s ease;
+    }
+
+    .empty-state {
+      color: #333;
+      font-size: 0.82rem;
+      text-align: center;
+      padding: 2rem 0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <header>
+    <h1>Teachable Machine</h1>
+    <p>Classificação de imagem em tempo real via webcam</p>
+  </header>
+
+  <div class="layout">
+    <div class="cam-section">
+      <div id="webcam-container">
+        <div class="placeholder" id="placeholder">
+          <svg viewBox="0 0 24 24">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          <span>Câmera inativa</span>
+        </div>
+      </div>
+
+      <button id="toggle-btn" onclick="toggleModel()">▶ Iniciar câmera</button>
+
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="status-text">Aguardando início</span>
+      </div>
+    </div>
+
+    <div class="results" id="label-container">
+      <div class="empty-state">Inicie a câmera para ver os resultados</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+<script>
+  const MODEL_URL = "https://teachablemachine.withgoogle.com/models/P5PeUH80O/";
+  let model, webcam, running = false;
+
+  function setStatus(text, active) {
+    document.getElementById("status-text").textContent = text;
+    document.getElementById("dot").className = "dot" + (active ? " active" : "");
+  }
+
+  function buildCards(labels) {
+    const container = document.getElementById("label-container");
+    container.innerHTML = "";
+    labels.forEach(name => {
+      const id = name.replace(/\s+/g, "_");
+      container.innerHTML += `
+        <div class="result-card" id="card-${id}">
+          <div class="result-header">
+            <span class="result-name">${name}</span>
+            <span class="result-pct" id="pct-${id}">0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" id="bar-${id}"></div>
+          </div>
+        </div>`;
+    });
+  }
+
+  async function toggleModel() {
+    running ? stopModel() : await startModel();
+  }
+
+  async function startModel() {
+    const btn = document.getElementById("toggle-btn");
+    btn.disabled = true;
+    setStatus("Carregando modelo...", false);
+
+    try {
+      model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+      const labels = model.getClassLabels
+        ? model.getClassLabels()
+        : Array.from({ length: model.getTotalClasses() }, (_, i) => `Classe ${i + 1}`);
+
+      buildCards(labels);
+      setStatus("Iniciando câmera...", false);
+
+      webcam = new tmImage.Webcam(220, 220, true);
+      await webcam.setup();
+      await webcam.play();
+
+      document.getElementById("placeholder").style.display = "none";
+      document.getElementById("webcam-container").appendChild(webcam.canvas);
+
+      running = true;
+      btn.textContent = "⏹ Parar câmera";
+      btn.className = "stop";
+      btn.disabled = false;
+      setStatus("Classificando em tempo real", true);
+      loop();
+    } catch (e) {
+      setStatus("Erro: " + e.message, false);
+      btn.disabled = false;
+    }
+  }
+
+  function stopModel() {
+    running = false;
+    webcam?.stop();
+
+    const wc = document.getElementById("webcam-container");
+    if (webcam?.canvas && wc.contains(webcam.canvas)) wc.removeChild(webcam.canvas);
+
+    document.getElementById("placeholder").style.display = "flex";
+    document.getElementById("label-container").innerHTML = '<div class="empty-state">Inicie a câmera para ver os resultados</div>';
+
+    const btn = document.getElementById("toggle-btn");
+    btn.textContent = "▶ Iniciar câmera";
+    btn.className = "";
+    setStatus("Câmera encerrada", false);
+  }
+
+  async function loop() {
+    if (!running) return;
+    webcam.update();
+    await predict();
+    requestAnimationFrame(loop);
+  }
+
+  async function predict() {
+    const predictions = await model.predict(webcam.canvas);
+    const max = Math.max(...predictions.map(p => p.probability));
+
+    predictions.forEach(p => {
+      const id = p.className.replace(/\s+/g, "_");
+      const pct = Math.round(p.probability * 100);
+      const bar = document.getElementById("bar-" + id);
+      const pctEl = document.getElementById("pct-" + id);
+      const card = document.getElementById("card-" + id);
+      if (bar) bar.style.width = pct + "%";
+      if (pctEl) pctEl.textContent = pct + "%";
+      if (card) card.className = "result-card" + (p.probability === max ? " top" : "");
+    });
+  }
+</script>
+</body>
+</html>
